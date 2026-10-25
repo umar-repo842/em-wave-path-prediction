@@ -1,80 +1,57 @@
-import streamlit as st
-import pandas as pd
-import joblib
+import streamlit as st, pandas as pd, numpy as np, joblib
+import matplotlib.pyplot as plt
 
-# 1. Page Configuration
-st.set_page_config(page_title="EM Wave Predictor", page_icon="🔥", layout="wide")
+st.title("🔥 Predicting Paths in a Fire's Heat Haze")
+st.write("We track tiny points in a Schlieren video of a wood fire, then ask a model to "
+         "predict where a point will travel, given only its first 5 positions.")
 
-# 2. Load the dataset and the trained model
+bundle = joblib.load("path_predictor.pkl")
+model, test_start = bundle["model"], bundle["test_start"]
+df = pd.read_csv("path_coordinates.csv")
+test = df[df.frame_id >= test_start]          # frames the model never trained on
+
+H = st.sidebar.slider("How many frames ahead to predict", 5, 30, 15)
+
 @st.cache_data
-def load_data():
-    return pd.read_csv("clean_em_wave_dataset.csv")
+def get_runs(H):
+    runs = []
+    for pid, g in test.groupby("point_id"):
+        g = g.sort_values("frame_id")
+        run = (g.frame_id.diff() != 1).cumsum()
+        for _, gr in g.groupby(run):
+            if len(gr) >= 5 + H:
+                runs.append((int(pid), int(gr.frame_id.iloc[0]), gr[["x", "y"]].values[:5 + H]))
+    return runs
 
-@st.cache_resource
-def load_model():
-    return joblib.load("em_wave_predictor.pkl")
+runs = get_runs(H)
+if not runs:
+    st.warning("No long enough paths. Lower the slider.")
+    st.stop()
 
-df = load_data()
-model = load_model()
+i = st.sidebar.slider("Pick a path", 0, len(runs) - 1, 0)
+pid, start_frame, real = runs[i]
 
-# Header
-st.title("🔥 EM Wave Path Prediction Dashboard")
-st.markdown("Predicting electromagnetic signal deviation through a turbulent wood-burning thermal plume.")
+pred = list(real[:5])
+for _ in range(H):
+    steps = np.diff(np.array(pred[-5:]), axis=0).flatten()
+    pred.append(pred[-1] + model.predict([steps])[0])
+pred = np.array(pred)
 
-# Create Tabs for a better UI
-tab1, tab2, tab3 = st.tabs(["🎥 Live Frame Analysis", "🎛️ Manual Simulator", "📊 Dataset Overview"])
+v = real[4] - real[3]
+naive = np.array([real[4] + k * v for k in range(0, H + 1)])
 
-# --- TAB 1: LIVE FRAME ANALYSIS ---
-with tab1:
-    st.sidebar.header("Frame Selection")
-    row_index = st.sidebar.slider("Select a row from the test data:", 0, len(df)-1, 1500)
-    selected_data = df.iloc[row_index]
+fig, ax = plt.subplots()
+ax.plot(real[:, 0], real[:, 1], "g-o", ms=3, label="Real path")
+ax.plot(pred[4:, 0], pred[4:, 1], "r--o", ms=3, label="Model prediction")
+ax.plot(naive[:, 0], naive[:, 1], "b:", label="Naive (straight line)")
+ax.scatter(real[:5, 0], real[:5, 1], c="k", zorder=5, label="Positions given to model")
+ax.invert_yaxis(); ax.set_xlabel("x (pixels)"); ax.set_ylabel("y (pixels)"); ax.legend()
+st.pyplot(fig)
 
-    st.subheader(f"Analyzing Frame ID: {int(selected_data['frame_id'])}")
-
-    # Display the extracted optical features
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mean Brightness", f"{selected_data['mean_brightness']:.2f}")
-    col2.metric("Thermal Shimmer", f"{selected_data['thermal_shimmer_blur']:.2f}")
-    col3.metric("Edge Density", f"{selected_data['refraction_edge_density']:.0f}")
-
-    # Make the Prediction (Passed as a DataFrame to fix the sklearn warning)
-    features = pd.DataFrame([selected_data[['mean_brightness', 'thermal_shimmer_blur', 'refraction_edge_density']]])
-    prediction = model.predict(features)[0]
-    actual = selected_data['target_em_deviation']
-
-    st.markdown("---")
-    st.success(f"**Predicted EM Wave Deviation:** {prediction:.6f} units")
-    st.info(f"**Actual (Synthesized) Deviation:** {actual:.6f} units")
-
-    # Add a localized trend graph
-    st.subheader("Local Distortion Trend (±50 Frames)")
-    start_idx = max(0, row_index - 50)
-    end_idx = min(len(df), row_index + 50)
-    trend_df = df.iloc[start_idx:end_idx]
-    st.line_chart(trend_df.set_index('frame_id')[['target_em_deviation']])
-
-# --- TAB 2: MANUAL SIMULATOR ---
-with tab2:
-    st.subheader("Manual Physics Simulator")
-    st.write("Adjust the physical optical metrics manually to see how the Random Forest model reacts in real-time.")
-    
-    # Sliders based on the min/max values of your actual dataset
-    m_bright = st.slider("Mean Brightness (Combustion Intensity)", float(df['mean_brightness'].min()), float(df['mean_brightness'].max()), float(df['mean_brightness'].mean()))
-    t_shimmer = st.slider("Thermal Shimmer (Laplacian Variance)", float(df['thermal_shimmer_blur'].min()), float(df['thermal_shimmer_blur'].max()), float(df['thermal_shimmer_blur'].mean()))
-    e_density = st.slider("Edge Density (Refractive Boundaries)", float(df['refraction_edge_density'].min()), float(df['refraction_edge_density'].max()), float(df['refraction_edge_density'].mean()))
-    
-    manual_features = pd.DataFrame([[m_bright, t_shimmer, e_density]], columns=['mean_brightness', 'thermal_shimmer_blur', 'refraction_edge_density'])
-    manual_pred = model.predict(manual_features)[0]
-    
-    st.markdown("---")
-    st.warning(f"**Simulated EM Wave Deviation:** {manual_pred:.6f} units")
-
-# --- TAB 3: DATASET OVERVIEW ---
-with tab3:
-    st.subheader("Dataset Overview")
-    st.write(f"Total valid thermal plume frames: {len(df)}")
-    st.dataframe(df) 
-    
-    st.subheader("Overall Target Deviation Trend")
-    st.line_chart(df.set_index('frame_id')['target_em_deviation'])
+err_m = np.linalg.norm(pred[-1] - real[-1])
+err_n = np.linalg.norm(naive[-1] - real[-1])
+c1, c2 = st.columns(2)
+c1.metric("Model error at the end", f"{err_m:.1f} px")
+c2.metric("Naive error at the end", f"{err_n:.1f} px")
+st.caption(f"Point #{pid}, starting at frame {start_frame}. Errors grow the further ahead we predict. "
+           "Turbulence is hard to forecast.")
