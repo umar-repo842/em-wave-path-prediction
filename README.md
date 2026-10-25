@@ -6,9 +6,10 @@ Course: Fundamentals of AI/ML (PHC-351), IIT Roorkee. Author: Umar Shahid.
 
 ## Files
 * `extract_path.py`: tracks points in the video and saves their x, y coordinates.
-* `path_coordinates.csv`: the dataset (frame, point ID, x, y).
-* `train_model.py`: trains and compares the naive baseline, Ridge regression and Random Forest, using a time-ordered train/validation/test split.
-* `evaluate.py`: measures error for predicting 1 to 15 frames ahead.
+* `path_coordinates.csv`: the full dataset (frame, point ID, x, y).
+* `train_data/`, `val_data/`, `test_data/`: the time-ordered 60/20/20 splits used for training, validation and testing.
+* `train_model.py`: trains and compares a naive baseline, Ridge regression and a Random Forest.
+* `evaluate.py`: measures error when predicting 1 to 15 frames ahead.
 * `app.py`: Streamlit dashboard that plots real vs predicted paths.
 * `path_predictor.pkl`: the trained model.
 
@@ -16,7 +17,7 @@ Course: Fundamentals of AI/ML (PHC-351), IIT Roorkee. Author: Umar Shahid.
 1. `pip install -r requirements.txt`
 2. `streamlit run app.py`
 
-To redo everything, put the video in this folder as `wood_fire_thermal.mp4` and run `extract_path.py`, then `train_model.py`, then `evaluate.py`.
+To redo everything, put the video in this folder as `wood_fire_thermal.mp4`, then run `extract_path.py`, `train_model.py` and `evaluate.py` in that order.
 
 ## Results (test period, unseen later frames)
 | Frames ahead | Model error | Naive error |
@@ -26,10 +27,10 @@ To redo everything, put the video in this folder as `wood_fire_thermal.mp4` and 
 | 15 | 5.99 px | 8.05 px |
 
 ## Limitations
-One video, one fire type, no radio measurements. Do not use for real rescue decisions.
+One video, one fire type, no radio measurements. Not for real rescue decisions.
 
 ## Links
-* Dataset: (add link)
 * Report: (add link)
+* Dataset (Zenodo): (add link)
 * Video: (add link)
 * Live dashboard: (add link)
